@@ -1,12 +1,23 @@
-🐺 Termux Master Ultra (TMU) - Single Deployment Script
-Below is a complete, clean installation script that sets up the entire TMU stack with all corrections applied.
+
+# Add topics to your repo (via GitHub UI or CLI)
+gh repo edit --add-topic termux 
+--add-topic swarm-control --add-topic 
+flask🐺 Termux Master Ultra (TMU) - 
+Single Deployment Script Below is a 
+complete, clean installation script that 
+sets up the entire TMU stack with all 
+corrections applied.
 
 #!/usr/bin/env bash
-# 🐺 Termux Master Ultra (TMU) - One-Click Deployment Script
-# Branding: Trademark Mascot with 'D' Collar (1086.png)
-# Usage: ./deploy-tmu.sh [install|start|stop|status|reset]
-set -euo pipefail
-
+# Tag a release# 🐺 Termux Master Ultra 
+# (TMU) - One-Click Deployment Script 
+# Branding: Trademark Mascot with 'D' 
+# Collar (1086.png) Usage: 
+# ./deploy-tmu.sh 
+# [install|start|stop|status|reset]
+git tag -a v1.0.0 -m "Initial TMU 
+Release"set -euo pipefail
+git push origin v1.0.0
 # =============================================================================
 # ⚙️ CONFIGURATION
 # =============================================================================

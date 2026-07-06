@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+PID_FILE="$HOME/.termux_master/app.pid"
+ENV_FILE="$HOME/.termux_master/.env"
+APP_PATH="$HOME/.termux_master/dashboard.py"
+LOG_FILE="$HOME/.termux_master/logs/app.log"
+
+# IMPORTANT: Load environment variables for background process
+if [ -f "$ENV_FILE" ]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+fi
+
+case "$1" in
+    up)
+        if [ -f "$PID_FILE" ] && ps -p $(cat "$PID_FILE") > /dev/null 2>&1; then
+            echo "⚠️ Dashboard already running (PID: $(cat $PID_FILE))"
+        else
+            nohup python3 "$APP_PATH" > "$LOG_FILE" 2>&1 &
+            echo $! > "$PID_FILE"
+            echo "✅ Started dashboard on http://127.0.0.1:8080"
+        fi
+        ;;
+    down)
+        if [ -f "$PID_FILE" ]; then
+            kill $(cat "$PID_FILE") && rm "$PID_FILE"
+            sleep 1
+            echo "✅ Stopped"
+        else
+            pkill -f dashboard.py
+            echo "⚠️ PID file missing, force-stopped via pkill"
+        fi
+        ;;
+    logs)
+        tail -f "$LOG_FILE"
+        ;;
+    status)
+        curl -s -H "X-TM-Token: $(grep TM_DASHBOARD_TOKEN $ENV_FILE | cut -d'=' -f2)" http://127.0.0.1:8080/api/status
+        echo ""
+        ;;
+    *)
+        echo "Usage: $0 {up|down|logs|status}"
+        ;;
+esac
