@@ -1,0 +1,2 @@
+# Termux-Master-Ultra-TMU---Single-Deployment-Script
+🐺 Termux Master Ultra (TMU) – Cyber-physical swarm control plane for Android/Termux devices. Features real-time telemetry dashboard, Marathoner scoring profile, thermal safety circuit-breakers, HMAC-signed audit ledger, and leader election. Monitors CPU, battery, &amp; temperature across distributed node clusters with single-file Flask architect
