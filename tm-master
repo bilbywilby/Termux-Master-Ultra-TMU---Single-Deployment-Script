@@ -1,42 +1,78 @@
 #!/usr/bin/env bash
-PID_FILE="$HOME/.termux_master/app.pid"
-ENV_FILE="$HOME/.termux_master/.env"
-APP_PATH="$HOME/.termux_master/dashboard.py"
+# Termux Master Ultra (TMU) - CLI Control Plane
+# v1.1.0 - Added monitor TUI and dependency checks
+
+PID_FILE="$HOME/.termux_master/app.pid"        
+ENV_FILE="$HOME/.termux_master/.env"           
+APP_PATH="$HOME/.termux_master/dashboard.py"   
 LOG_FILE="$HOME/.termux_master/logs/app.log"
 
-# IMPORTANT: Load environment variables for background process
+# Load environment variables
 if [ -f "$ENV_FILE" ]; then
     export $(grep -v '^#' "$ENV_FILE" | xargs)
 fi
 
+TM_TOKEN="${TM_DASHBOARD_TOKEN:-}"
+
 case "$1" in
     up)
         if [ -f "$PID_FILE" ] && ps -p $(cat "$PID_FILE") > /dev/null 2>&1; then
-            echo "⚠️ Dashboard already running (PID: $(cat $PID_FILE))"
+            echo "[WARN] Dashboard already running (PID: $(cat $PID_FILE))"
         else
             nohup python3 "$APP_PATH" > "$LOG_FILE" 2>&1 &
             echo $! > "$PID_FILE"
-            echo "✅ Started dashboard on http://127.0.0.1:8080"
+            echo "[OK] Started dashboard on http://127.0.0.1:8080"
         fi
         ;;
     down)
         if [ -f "$PID_FILE" ]; then
-            kill $(cat "$PID_FILE") && rm "$PID_FILE"
+            kill $(cat "$PID_FILE") && rm -f "$PID_FILE"
             sleep 1
-            echo "✅ Stopped"
+            echo "[OK] Stopped"
         else
-            pkill -f dashboard.py
-            echo "⚠️ PID file missing, force-stopped via pkill"
+            pkill -f dashboard.py || true
+            echo "[WARN] PID file missing, force-stopped via pkill"
         fi
         ;;
     logs)
         tail -f "$LOG_FILE"
         ;;
     status)
-        curl -s -H "X-TM-Token: $(grep TM_DASHBOARD_TOKEN $ENV_FILE | cut -d'=' -f2)" http://127.0.0.1:8080/api/status
-        echo ""
+        curl -s -H "X-TM-Token: $TM_TOKEN" http://127.0.0.1:8080/api/status | jq .
+        ;;
+    monitor)
+        # Real-time CLI TUI for swarm node observation
+        if ! command -v jq &> /dev/null; then
+            echo "[ERR] 'jq' is required for monitor mode. Run: pkg install jq"
+            exit 1
+        fi
+        
+        while true; do
+            clear
+            echo "🐺 TMU Swarm Monitor | Plane: 127.0.0.1:8080 | $(date +'%Y-%m-%d %H:%M:%S')"
+            echo "=========================================================================="
+            printf "%-18s %-12s %-8s %-8s %-8s %-8s\n" "NODE ID" "STATUS" "SCORE" "CPU(%)" "BAT(%)" "TEMP(°C)"
+            echo "--------------------------------------------------------------------------"
+            
+            # Fetch, parse, and format node telemetry stream
+            curl -s --max-time 2 -H "X-TM-Token: $TM_TOKEN" http://127.0.0.1:8080/api/status | \
+            jq -r '.nodes[] | "\(.node_id)\t\(.status)\t\(.score)\t\(.cpu)\t\(.battery)\t\(.temp)"' | \
+            awk -F'\t' '{
+                # Apply ANSI formatting based on status
+                status_color="\033[0m"
+                if ($2 == "operational") status_color="\033[32m" # Green
+                if ($2 == "demoted") status_color="\033[31m"     # Red
+                if ($2 == "offline") status_color="\033[90m"     # Gray
+                
+                printf "%-18s %s%-12s\033[0m %-8.1f %-8.1f %-8.1f %-8.1f\n", $1, status_color, $2, $3, $4, $5, $6
+            }'
+            
+            echo "=========================================================================="
+            echo "Press [CTRL+C] to exit"
+            sleep 2
+        done
         ;;
     *)
-        echo "Usage: $0 {up|down|logs|status}"
+        echo "Usage: $0 {up|down|logs|status|monitor}"
         ;;
 esac
