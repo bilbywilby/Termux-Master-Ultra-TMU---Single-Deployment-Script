@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐺 TMU Swarm Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Fira Code', monospace; background: #0a0e17; color: #d1d5db; }
+        .glow-card { background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(51, 65, 85, 0.5); backdrop-filter: blur(8px); }
+        .breach-anim { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red { 0%, 100% { border-color: #ef4444; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); } }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div class="flex items-center gap-4">
+                <svg class="w-16 h-16 text-indigo-400" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M50 15 L25 40 L35 45 L40 35 L50 42 L60 35 L65 45 L75 40 Z"/>
+                    <circle cx="38" cy="52" r="4"/><circle cx="62" cy="52" r="4"/>
+                    <path d="M45 65 Q50 70 55 65"/>
+                    <path d="M50 78 L43 90 L57 90 Z" fill="#6366f1"/>
+                    <text x="47" y="88" fill="#fff" font-size="10" font-weight="bold">D</text>
+                </svg>
+                <div>
+                    <h1 class="text-2xl font-bold">🐺 TMU Swarm Control Plane</h1>
+                    <p class="text-sm text-slate-400">Marathoner Profile • Thermal Circuit-Breaker • HMAC Audit Ledger</p>
+                </div>
+            </div>
+            <div class="flex flex-col items-end">
+                <span id="conn-status" class="text-xs bg-rose-900/50 text-rose-400 px-3 py-1 rounded-full">● OFFLINE</span>
+                <span id="uptime" class="text-xs text-slate-500 mt-1">--:--:--</span>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="glow-card p-4 rounded-xl">
+                <p class="text-xs text-slate-400 uppercase">Total Nodes</p>
+                <p id="total-nodes" class="text-2xl font-bold text-white">0</p>
+            </div>
+            <div class="glow-card p-4 rounded-xl">
+                <p class="text-xs text-slate-400 uppercase">Operational</p>
+                <p id="operational-count" class="text-2xl font-bold text-emerald-400">0</p>
+            </div>
+            <div class="glow-card p-4 rounded-xl">
+                <p class="text-xs text-slate-400 uppercase">Avg Score</p>
+                <p id="avg-score" class="text-2xl font-bold text-indigo-400">0.0</p>
+            </div>
+            <div class="glow-card p-4 rounded-xl">
+                <p class="text-xs text-slate-400 uppercase">Breaches</p>
+                <p id="breach-count" class="text-2xl font-bold text-red-400">0</p>
+            </div>
+        </div>
+
+        <main id="nodes-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div id="empty-state" class="text-center text-slate-500 col-span-full py-12">Waiting for nodes...</div>
+        </main>
+    </div>
+
+    <script>
+        const AUTH_TOKEN = sessionStorage.getItem('auth_token');
+        let startTime = Date.now();
+        const nodesState = {};
+
+        function updateUptime() {
+            const elapsed = Date.now() - startTime;
+            document.getElementById('uptime').textContent = new Date(elapsed).toISOString().substr(11, 8);
+        }
+        setInterval(updateUptime, 1000);
+
+        async function connectSSE() {
+            try {
+                const res = await fetch('/api/sse-ticket', { method: 'POST', headers: { 'X-TM-Token': AUTH_TOKEN || '' } });
+                let ticketParam = '';
+                if (res.ok) {
+                    const { ticket } = await res.json();
+                    ticketParam = `?ticket=${ticket}`;
+                }
+                const es = new EventSource(`/api/events${ticketParam}`);
+
+                es.onopen = () => {
+                    document.getElementById('conn-status').className = 'text-xs bg-emerald-900/50 text-emerald-400 px-3 py-1 rounded-full';
+                    document.getElementById('conn-status').textContent = '● LIVE';
+                };
+
+                es.addEventListener('telemetry', (e) => {
+                    const data = JSON.parse(e.data);
+                    nodesState[data.node_id] = data;
+                    renderNode(data);
+                    updateStats();
+                });
+
+                es.onerror = () => {
+                    document.getElementById('conn-status').className = 'text-xs bg-amber-900/50 text-amber-400 px-3 py-1 rounded-full';
+                    document.getElementById('conn-status').textContent = '● RECONNECTING...';
+                    es.close();
+                    setTimeout(connectSSE, 3000);
+                };
+            } catch (err) { 
+                console.error('Connection failed:', err); 
+                setTimeout(connectSSE, 5000);
+            }
+        }
+
+        function renderNode(node) {
+            const grid = document.getElementById('nodes-grid');
+            let card = document.getElementById(`card-${node.node_id}`);
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) emptyState.remove();
+            
+            if (!card) { card = document.createElement('div'); card.id = `card-${node.node_id}`; grid.appendChild(card); }
+
+            const isBreached = node.status === 'demoted';
+            card.className = `glow-card p-4 rounded-xl relative overflow-hidden transition-all duration-300 ${isBreached ? 'border-red-500 breach-anim bg-red-950/20' : 'border-slate-800 bg-slate-950/60'}`;
+
+            const cpuWidth = Math.min(Math.max(node.cpu, 0), 100);
+            const tempWidth = Math.min(Math.max((node.temp / 80) * 100, 0), 100);
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h3 class="font-bold text-white">${node.node_id}</h3>
+                        <span class="text-xs px-2 py-0.5 rounded ${isBreached ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}">${(node.status || 'operational').toUpperCase()}</span>
+                    </div>
+                    <span class="text-lg font-bold text-indigo-400">${(node.score || 0).toFixed(1)}</span>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs text-slate-400 mb-1"><span>CPU</span><span>${node.cpu.toFixed(1)}%</span></div>
+                        <div class="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                            <div class="h-full bg-indigo-500 transition-all duration-500" style="width: ${cpuWidth}%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs text-slate-400 mb-1"><span>Thermal</span><span class="${isBreached ? 'text-red-400 font-bold' : ''}">${node.temp.toFixed(1)}°C</span></div>
+                        <div class="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                            <div class="h-full transition-all duration-500 ${isBreached ? 'bg-red-500' : 'bg-amber-500'}" style="width: ${tempWidth}%"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateStats() {
+            const nodes = Object.values(nodesState);
+            if (nodes.length === 0) return;
+            document.getElementById('total-nodes').textContent = nodes.length;
+            const operational = nodes.filter(n => n.status !== 'demoted').length;
+            document.getElementById('operational-count').textContent = operational;
+            const breaches = nodes.length - operational;
+            document.getElementById('breach-count').textContent = breaches;
+            const totalScore = nodes.reduce((sum, n) => sum + (n.score || 0), 0);
+            document.getElementById('avg-score').textContent = (totalScore / nodes.length).toFixed(1);
+        }
+
+        connectSSE();
+    </script>
+</body>
+</html>
